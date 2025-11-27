@@ -1,7 +1,12 @@
 api_platform:
-    title: Hello API Platform
+    title: Internal Tools API
     version: 1.0.0
+
     defaults:
         stateless: true
         cache_headers:
             vary: ['Content-Type', 'Authorization', 'Origin']
+
+    graphql:
+        enabled: false
+
