@@ -21,7 +21,7 @@ use Symfony\Component\Validator\Constraints as Assert;
 #[ApiResource(
     operations: [
         new GetCollection(),
-        new Get(),
+        new Get(provider: 'App\\State\\ToolDetailStateProvider'),
         new Post(),
         new Put()
     ]
@@ -104,6 +104,23 @@ class Tool
     #[ORM\JoinColumn(name: 'category_id', referencedColumnName: 'id', nullable: false)]
     #[Assert\NotNull]
     private ?Category $category = null;
+
+    /**
+     * Champ calculé : coût mensuel total (depuis cost_tracking)
+     */
+    private ?float $totalMonthlyCost = null;
+
+    /**
+     * Champ calculé : métriques d'usage (depuis usage_logs)
+     * Exemple:
+     * [
+     *   "last_30_days" => [
+     *     "total_sessions" => 127,
+     *     "avg_session_minutes" => 45
+     *   ]
+     * ]
+     */
+    private ?array $usageMetrics = null;
 
     public function getId(): ?int
     {
@@ -238,6 +255,30 @@ class Tool
     public function setCategory(?Category $category): static
     {
         $this->category = $category;
+
+        return $this;
+    }
+
+    public function getTotalMonthlyCost(): ?float
+    {
+        return $this->totalMonthlyCost;
+    }
+
+    public function setTotalMonthlyCost(?float $totalMonthlyCost): static
+    {
+        $this->totalMonthlyCost = $totalMonthlyCost;
+
+        return $this;
+    }
+
+    public function getUsageMetrics(): ?array
+    {
+        return $this->usageMetrics;
+    }
+
+    public function setUsageMetrics(?array $usageMetrics): static
+    {
+        $this->usageMetrics = $usageMetrics;
 
         return $this;
     }
