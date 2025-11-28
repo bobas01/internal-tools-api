@@ -89,4 +89,98 @@ class AnalyticsController extends AbstractController
             ],
         ]);
     }
+
+    #[Route('/expensive-tools', name: 'api_analytics_expensive_tools', methods: ['GET'])]
+    public function expensiveTools(Request $request): JsonResponse
+    {
+        $limit = max(1, min(100, (int) $request->query->get('limit', 10)));
+        $minCost = $request->query->get('min_cost') ? (float) $request->query->get('min_cost') : null;
+
+        $avgCostPerUserCompany = $this->connection->fetchOne(
+            'SELECT 
+                CASE 
+                    WHEN SUM(active_users_count) > 0 
+                    THEN ROUND(SUM(monthly_cost) / SUM(active_users_count), 2)
+                    ELSE 0
+                END
+             FROM tools
+             WHERE status = "active" AND active_users_count > 0'
+        );
+
+        $sql = "
+            SELECT 
+                id,
+                name,
+                monthly_cost,
+                active_users_count,
+                owner_department AS department,
+                vendor,
+                CASE 
+                    WHEN active_users_count > 0 
+                    THEN ROUND(monthly_cost / active_users_count, 2)
+                    ELSE NULL
+                END AS cost_per_user
+            FROM tools
+            WHERE status = 'active'
+        ";
+
+        $params = [];
+        if ($minCost !== null) {
+            $sql .= " AND monthly_cost >= :minCost";
+            $params['minCost'] = $minCost;
+        }
+
+        $sql .= " ORDER BY monthly_cost DESC LIMIT " . (int) $limit;
+
+        $tools = $this->connection->fetchAllAssociative($sql, $params);
+
+        $data = [];
+        $potentialSavings = 0.0;
+
+        foreach ($tools as $tool) {
+            $costPerUser = $tool['cost_per_user'] ? (float) $tool['cost_per_user'] : null;
+
+            $efficiencyRating = 'average';
+            if ($costPerUser !== null && $avgCostPerUserCompany > 0) {
+                $ratio = $costPerUser / $avgCostPerUserCompany;
+                if ($ratio < 0.5) {
+                    $efficiencyRating = 'excellent';
+                } elseif ($ratio <= 0.8) {
+                    $efficiencyRating = 'good';
+                } elseif ($ratio <= 1.2) {
+                    $efficiencyRating = 'average';
+                } else {
+                    $efficiencyRating = 'low';
+                }
+            }
+
+            if ($efficiencyRating === 'low') {
+                $potentialSavings += (float) $tool['monthly_cost'];
+            }
+
+            $data[] = [
+                'id' => (int) $tool['id'],
+                'name' => $tool['name'],
+                'monthly_cost' => (float) $tool['monthly_cost'],
+                'active_users_count' => (int) $tool['active_users_count'],
+                'cost_per_user' => $costPerUser,
+                'department' => $tool['department'],
+                'vendor' => $tool['vendor'],
+                'efficiency_rating' => $efficiencyRating,
+            ];
+        }
+
+        $totalToolsAnalyzed = $this->connection->fetchOne(
+            'SELECT COUNT(*) FROM tools WHERE status = "active"'
+        );
+
+        return $this->json([
+            'data' => $data,
+            'analysis' => [
+                'total_tools_analyzed' => (int) $totalToolsAnalyzed,
+                'avg_cost_per_user_company' => (float) $avgCostPerUserCompany,
+                'potential_savings_identified' => round($potentialSavings, 2),
+            ],
+        ]);
+    }
 }
