@@ -187,7 +187,6 @@ class AnalyticsController extends AbstractController
     #[Route('/tools-by-category', name: 'api_analytics_tools_by_category', methods: ['GET'])]
     public function toolsByCategory(): JsonResponse
     {
-        // Calculer le coût total de l'entreprise (outils actifs uniquement)
         $totalCompanyCost = $this->connection->fetchOne(
             'SELECT COALESCE(SUM(monthly_cost), 0) 
              FROM tools 
@@ -256,6 +255,84 @@ class AnalyticsController extends AbstractController
             'insights' => [
                 'most_expensive_category' => $mostExpensiveCategory,
                 'most_efficient_category' => $mostEfficientCategory,
+            ],
+        ]);
+    }
+
+    #[Route('/low-usage-tools', name: 'api_analytics_low_usage_tools', methods: ['GET'])]
+    public function lowUsageTools(Request $request): JsonResponse
+    {
+        $maxUsers = max(0, (int) $request->query->get('max_users', 5));
+
+        $sql = "
+            SELECT 
+                id,
+                name,
+                monthly_cost,
+                active_users_count,
+                owner_department AS department,
+                vendor,
+                CASE 
+                    WHEN active_users_count > 0 
+                    THEN ROUND(monthly_cost / active_users_count, 2)
+                    ELSE NULL
+                END AS cost_per_user
+            FROM tools
+            WHERE status = 'active' AND active_users_count <= :maxUsers
+            ORDER BY monthly_cost DESC
+        ";
+
+        $tools = $this->connection->fetchAllAssociative($sql, [
+            'maxUsers' => $maxUsers
+        ]);
+
+        $data = [];
+        $potentialMonthlySavings = 0.0;
+
+        foreach ($tools as $tool) {
+            $costPerUser = $tool['cost_per_user'] ? (float) $tool['cost_per_user'] : null;
+
+            $warningLevel = 'low';
+            if ($tool['active_users_count'] === 0) {
+                $warningLevel = 'high';
+            } elseif ($costPerUser !== null) {
+                if ($costPerUser > 50) {
+                    $warningLevel = 'high';
+                } elseif ($costPerUser >= 20) {
+                    $warningLevel = 'medium';
+                }
+            }
+
+            $potentialAction = 'Monitor usage trends';
+            if ($warningLevel === 'high') {
+                $potentialAction = 'Consider canceling or downgrading';
+            } elseif ($warningLevel === 'medium') {
+                $potentialAction = 'Review usage and consider optimization';
+            }
+
+            if (in_array($warningLevel, ['high', 'medium'])) {
+                $potentialMonthlySavings += (float) $tool['monthly_cost'];
+            }
+
+            $data[] = [
+                'id' => (int) $tool['id'],
+                'name' => $tool['name'],
+                'monthly_cost' => (float) $tool['monthly_cost'],
+                'active_users_count' => (int) $tool['active_users_count'],
+                'cost_per_user' => $costPerUser,
+                'department' => $tool['department'],
+                'vendor' => $tool['vendor'],
+                'warning_level' => $warningLevel,
+                'potential_action' => $potentialAction,
+            ];
+        }
+
+        return $this->json([
+            'data' => $data,
+            'savings_analysis' => [
+                'total_underutilized_tools' => count($data),
+                'potential_monthly_savings' => round($potentialMonthlySavings, 2),
+                'potential_annual_savings' => round($potentialMonthlySavings * 12, 2),
             ],
         ]);
     }
