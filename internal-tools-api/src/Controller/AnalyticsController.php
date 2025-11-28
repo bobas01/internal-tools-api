@@ -336,4 +336,86 @@ class AnalyticsController extends AbstractController
             ],
         ]);
     }
+
+    #[Route('/vendor-summary', name: 'api_analytics_vendor_summary', methods: ['GET'])]
+    public function vendorSummary(): JsonResponse
+    {
+        $sql = "
+            SELECT 
+                vendor,
+                COUNT(*) AS tools_count,
+                COALESCE(SUM(monthly_cost), 0) AS total_monthly_cost,
+                COALESCE(SUM(active_users_count), 0) AS total_users,
+                GROUP_CONCAT(DISTINCT owner_department ORDER BY owner_department SEPARATOR ',') AS departments,
+                CASE 
+                    WHEN SUM(active_users_count) > 0 
+                    THEN ROUND(SUM(monthly_cost) / SUM(active_users_count), 2)
+                    ELSE NULL
+                END AS average_cost_per_user
+            FROM tools
+            WHERE status = 'active'
+            GROUP BY vendor
+            ORDER BY total_monthly_cost DESC
+        ";
+
+        $vendors = $this->connection->fetchAllAssociative($sql);
+
+        $data = [];
+        $mostEfficientVendor = null;
+        $lowestCostPerUser = null;
+        $singleToolVendors = 0;
+
+        foreach ($vendors as $vendor) {
+            $avgCostPerUser = $vendor['average_cost_per_user'] ? (float) $vendor['average_cost_per_user'] : null;
+
+            $vendorEfficiency = 'average';
+            if ($avgCostPerUser !== null) {
+                if ($avgCostPerUser < 5) {
+                    $vendorEfficiency = 'excellent';
+                } elseif ($avgCostPerUser <= 15) {
+                    $vendorEfficiency = 'good';
+                } elseif ($avgCostPerUser <= 25) {
+                    $vendorEfficiency = 'average';
+                } else {
+                    $vendorEfficiency = 'poor';
+                }
+            }
+
+            if ($avgCostPerUser !== null) {
+                if ($lowestCostPerUser === null || $avgCostPerUser < $lowestCostPerUser) {
+                    $lowestCostPerUser = $avgCostPerUser;
+                    $mostEfficientVendor = $vendor['vendor'];
+                } elseif ($avgCostPerUser === $lowestCostPerUser && $mostEfficientVendor !== null) {
+                    if (strcmp($vendor['vendor'], $mostEfficientVendor) < 0) {
+                        $mostEfficientVendor = $vendor['vendor'];
+                    }
+                }
+            }
+
+            if ((int) $vendor['tools_count'] === 1) {
+                $singleToolVendors++;
+            }
+
+            $data[] = [
+                'vendor' => $vendor['vendor'],
+                'tools_count' => (int) $vendor['tools_count'],
+                'total_monthly_cost' => (float) $vendor['total_monthly_cost'],
+                'total_users' => (int) $vendor['total_users'],
+                'departments' => $vendor['departments'] ?? '',
+                'average_cost_per_user' => $avgCostPerUser,
+                'vendor_efficiency' => $vendorEfficiency,
+            ];
+        }
+
+        $mostExpensiveVendor = !empty($data) ? $data[0]['vendor'] : null;
+
+        return $this->json([
+            'data' => $data,
+            'vendor_insights' => [
+                'most_expensive_vendor' => $mostExpensiveVendor,
+                'most_efficient_vendor' => $mostEfficientVendor,
+                'single_tool_vendors' => $singleToolVendors,
+            ],
+        ]);
+    }
 }
