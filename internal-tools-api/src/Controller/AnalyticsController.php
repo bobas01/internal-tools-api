@@ -183,4 +183,80 @@ class AnalyticsController extends AbstractController
             ],
         ]);
     }
+
+    #[Route('/tools-by-category', name: 'api_analytics_tools_by_category', methods: ['GET'])]
+    public function toolsByCategory(): JsonResponse
+    {
+        // Calculer le coût total de l'entreprise (outils actifs uniquement)
+        $totalCompanyCost = $this->connection->fetchOne(
+            'SELECT COALESCE(SUM(monthly_cost), 0) 
+             FROM tools 
+             WHERE status = "active"'
+        );
+
+        $sql = "
+            SELECT 
+                c.name AS category_name,
+                COUNT(t.id) AS tools_count,
+                COALESCE(SUM(t.monthly_cost), 0) AS total_cost,
+                COALESCE(SUM(t.active_users_count), 0) AS total_users,
+                CASE 
+                    WHEN :totalCompanyCost > 0 
+                    THEN ROUND((SUM(t.monthly_cost) / :totalCompanyCost) * 100, 1)
+                    ELSE 0
+                END AS percentage_of_budget,
+                CASE 
+                    WHEN SUM(t.active_users_count) > 0 
+                    THEN ROUND(SUM(t.monthly_cost) / SUM(t.active_users_count), 2)
+                    ELSE NULL
+                END AS average_cost_per_user
+            FROM categories c
+            LEFT JOIN tools t ON c.id = t.category_id AND t.status = 'active'
+            GROUP BY c.id, c.name
+            HAVING tools_count > 0
+            ORDER BY total_cost DESC
+        ";
+
+        $categories = $this->connection->fetchAllAssociative($sql, [
+            'totalCompanyCost' => $totalCompanyCost
+        ]);
+
+        $data = [];
+        $mostEfficientCategory = null;
+        $lowestCostPerUser = null;
+
+        foreach ($categories as $cat) {
+            $avgCostPerUser = $cat['average_cost_per_user'] ? (float) $cat['average_cost_per_user'] : null;
+
+            if ($avgCostPerUser !== null) {
+                if ($lowestCostPerUser === null || $avgCostPerUser < $lowestCostPerUser) {
+                    $lowestCostPerUser = $avgCostPerUser;
+                    $mostEfficientCategory = $cat['category_name'];
+
+                    if (strcmp($cat['category_name'], $mostEfficientCategory) < 0) {
+                        $mostEfficientCategory = $cat['category_name'];
+                    }
+                }
+            }
+
+            $data[] = [
+                'category_name' => $cat['category_name'],
+                'tools_count' => (int) $cat['tools_count'],
+                'total_cost' => (float) $cat['total_cost'],
+                'total_users' => (int) $cat['total_users'],
+                'percentage_of_budget' => (float) $cat['percentage_of_budget'],
+                'average_cost_per_user' => $avgCostPerUser,
+            ];
+        }
+
+        $mostExpensiveCategory = !empty($data) ? $data[0]['category_name'] : null;
+
+        return $this->json([
+            'data' => $data,
+            'insights' => [
+                'most_expensive_category' => $mostExpensiveCategory,
+                'most_efficient_category' => $mostEfficientCategory,
+            ],
+        ]);
+    }
 }
