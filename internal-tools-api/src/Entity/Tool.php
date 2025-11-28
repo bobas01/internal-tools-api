@@ -14,10 +14,14 @@ use ApiPlatform\Metadata\Put;
 use App\Repository\ToolRepository;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
+use Doctrine\ORM\Mapping\HasLifecycleCallbacks;
+use Doctrine\ORM\Mapping\PrePersist;
+use Doctrine\ORM\Mapping\PreUpdate;
 use Symfony\Component\Validator\Constraints as Assert;
 
 #[ORM\Entity(repositoryClass: ToolRepository::class)]
 #[ORM\Table(name: 'tools')]
+#[HasLifecycleCallbacks]
 #[ApiResource(
     operations: [
         new GetCollection(),
@@ -281,5 +285,22 @@ class Tool
         $this->usageMetrics = $usageMetrics;
 
         return $this;
+    }
+
+    #[PrePersist]
+    public function setCreatedAtValue(): void
+    {
+        if ($this->createdAt === null) {
+            $this->createdAt = new \DateTimeImmutable();
+        }
+        if ($this->updatedAt === null) {
+            $this->updatedAt = new \DateTimeImmutable();
+        }
+    }
+
+    #[PreUpdate]
+    public function setUpdatedAtValue(): void
+    {
+        $this->updatedAt = new \DateTimeImmutable();
     }
 }

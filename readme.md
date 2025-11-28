@@ -72,9 +72,83 @@ php bin/phpunit
 - **Structure du projet**
   - `docker-compose.yml` + `mysql/` : stack base de données + seed.
   - `internal-tools-api/` : application Symfony / API Platform.
-    - `src/Entity/Tool.php` : entité principale exposée en API (`/api/tools`), filtres (département, statut, coût, catégorie), validation.
+  - `src/Entity/Tool.php` : entité principale exposée en API (`/api/tools`), filtres (département, statut, coût, catégorie), validation.
     - `src/Entity/Category.php` : entité `categories`, exposée pour référencer les catégories via `/api/categories`.
     - `src/State/ToolDetailStateProvider.php` : provider custom pour le `GET /api/tools/{id}` détaillé, qui enrichit la réponse avec :
       - `totalMonthlyCost` (depuis la table `cost_tracking`)
       - `usageMetrics.last_30_days` (agrégats issus de `usage_logs`).
     - `config/packages/api_platform.yaml` : configuration API Platform (doc, formats, désactivation GraphQL).
+    - `src/Controller/AnalyticsController.php` : endpoints analytics pour l'optimisation des coûts :
+      - `GET /api/analytics/department-costs` : répartition des coûts par département
+      - `GET /api/analytics/expensive-tools` : top outils les plus coûteux avec rating d'efficacité
+      - `GET /api/analytics/tools-by-category` : répartition par catégorie d'outils
+      - `GET /api/analytics/low-usage-tools` : détection des outils sous-utilisés
+      - `GET /api/analytics/vendor-summary` : analyse des fournisseurs
+
+## Endpoints Analytics
+
+### GET `/api/analytics/department-costs`
+
+Répartition des coûts par département avec agrégations (coût total, nombre d'outils, utilisateurs, pourcentages).
+
+**Paramètres optionnels :**
+
+- `sort_by` : `total_cost`, `department`, `tools_count`, `total_users` (défaut: `total_cost`)
+- `order` : `asc` ou `desc` (défaut: `desc`)
+
+**Exemple :**
+
+```
+GET /api/analytics/department-costs?sort_by=total_cost&order=desc
+```
+
+### GET `/api/analytics/expensive-tools`
+
+Liste des outils les plus coûteux avec calcul d'efficacité (`cost_per_user` vs moyenne entreprise).
+
+**Paramètres optionnels :**
+
+- `limit` : nombre d'outils à retourner (1-100, défaut: 10)
+- `min_cost` : coût minimum pour filtrer
+
+**Exemple :**
+
+```
+GET /api/analytics/expensive-tools?limit=10&min_cost=50
+```
+
+### GET `/api/analytics/tools-by-category`
+
+Répartition des outils par catégorie avec métriques d'efficacité.
+
+**Exemple :**
+
+```
+GET /api/analytics/tools-by-category
+```
+
+### GET `/api/analytics/low-usage-tools`
+
+Détection des outils sous-utilisés avec recommandations d'optimisation.
+
+**Paramètres optionnels :**
+
+- `max_users` : seuil maximum d'utilisateurs actifs (défaut: 5)
+
+**Exemple :**
+
+```
+GET /api/analytics/low-usage-tools?max_users=5
+```
+
+### GET `/api/analytics/vendor-summary`
+
+Analyse des fournisseurs avec agrégations multi-niveaux et opportunités de consolidation.
+
+**Exemple :**
+
+```
+GET /api/analytics/vendor-summary
+```
+
+**Note :** Tous les endpoints analytics incluent uniquement les outils avec `status = "active"`.
